@@ -1,0 +1,28 @@
+#environment variables
+.env
+.env.*
+
+#Python cache files
+__pycache__/
+.DS_Store
+
+#data files and folder
+*.csv
+data/
+
+#virtual environment
+venv/
+app/venv/
+
+# VScode settings
+.vscode/
+
+# ObjectBox database
+objectbox/
+
+# PDF data
+us-census-data/
+
+# Images
+images/
+
