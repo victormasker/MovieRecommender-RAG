@@ -41,6 +41,9 @@ def vector_embedding():
             st.session_state.embeddings = huggingface_instruct_embedding()
             st.session_state.loader = CSVLoader('../data/IMDB Dataset.csv')
             st.session_state.docs = st.session_state.loader.load()
+            # Clean HTML tags from review text
+            for doc in st.session_state.docs:
+                doc.page_content = doc.page_content.replace('<br /><br />', '\n').replace('<br />', '\n')
             st.session_state.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
             st.session_state.final_documents = st.session_state.text_splitter.split_documents(st.session_state.docs[:1000])
             st.session_state.vectors = ObjectBox.from_documents(st.session_state.final_documents, st.session_state.embeddings, embedding_dimensions=768, db_directory=db_path)
