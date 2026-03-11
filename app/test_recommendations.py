@@ -80,8 +80,8 @@ if __name__ == "__main__":
     
     # Test with different preferences
     test_preferences = [
-        "I like action movies with great reviews",
-        "Recommend me thrilling sci-fi films",
+        "I like adventurous action movies with attractive people",
+        "thrilling comedy films with twists",
         "I want movies with positive sentiment and a great sense of humor"
     ]
     
