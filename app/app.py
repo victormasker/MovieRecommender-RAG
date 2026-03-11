@@ -6,7 +6,9 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
 from utils import local_llm, huggingface_instruct_embedding
+from models import MovieRecommendations
 
 DB_PATH = '../vectorstore_faiss'
 LOG_DIR = '../logs'
@@ -16,9 +18,12 @@ st.set_page_config(layout='wide', page_title="Movie Recommender RAG")
 
 st.title('Movie Recommender RAG with LLaMA3')
 
+parser = PydanticOutputParser(pydantic_object=MovieRecommendations)
+
 prompt = ChatPromptTemplate.from_template(
     """
-    The user is looking for movie recommendations. Based on the movie reviews provided below, recommend films that match what the user is looking for.
+    The user is looking for movie recommendations. Based on the movie reviews below,
+    recommend films that match what the user is looking for.
 
     The user is looking for: {input}
 
@@ -26,9 +31,10 @@ prompt = ChatPromptTemplate.from_template(
     {context}
     </context>
 
-    Based on these reviews, recommend the most relevant films and explain why they match the user's preferences.
+    {format_instructions}
     """
 )
+prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 
 
 def load_vector_store():
@@ -85,7 +91,17 @@ if user_input:
     response = retrieval_chain.invoke({'input': user_input})
     response_time = time.process_time() - start
 
-    st.write(response['answer'])
+    # Try to parse structured output, fall back to raw text
+    try:
+        parsed = parser.parse(response['answer'])
+        st.subheader(parsed.summary)
+        for rec in parsed.recommendations:
+            st.markdown(f"**{rec.title}** ({rec.genre})")
+            st.write(rec.reason)
+            st.divider()
+    except Exception:
+        st.write(response['answer'])
+
     st.write(f'Response time: {response_time:.2f} secs')
 
     # Build the full prompt text for logging
