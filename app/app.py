@@ -1,80 +1,100 @@
-# import all necessary libraries
 import time
-import shutil
 import os
+from datetime import datetime
 import streamlit as st
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import CSVLoader
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
-from langchain_objectbox.vectorstores import ObjectBox
+from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
 from utils import local_llm, huggingface_instruct_embedding
 
-st.set_page_config(layout='wide', page_title="Objectbox and Langchain")
+DB_PATH = '../vectorstore_faiss'
+LOG_DIR = '../logs'
+LOG_FILE = os.path.join(LOG_DIR, 'rag_queries.log')
 
-st.title('Objectbox VectorstoreDB with LLaMA3')
+st.set_page_config(layout='wide', page_title="Movie Recommender RAG")
+
+st.title('Movie Recommender RAG with LLaMA3')
 
 prompt = ChatPromptTemplate.from_template(
     """
-    
-    Answer the questions based on the provided context only.
-    Please provide the most accurate response based on the question
+    The user is looking for movie recommendations. Based on the movie reviews provided below, recommend films that match what the user is looking for.
+
+    The user is looking for: {input}
+
     <context>
     {context}
     </context>
-    Questions: {input}
 
+    Based on these reviews, recommend the most relevant films and explain why they match the user's preferences.
     """
 )
 
-# function for vector embedding and Objectbox VectorstoreDB
-def vector_embedding():
 
+def load_vector_store():
+    """Load the pre-built FAISS vector store from disk."""
     if 'vectors' not in st.session_state:
-        # Clean up old DB to avoid schema conflicts
-        db_path = '../objectbox'
-        if os.path.exists(db_path):
-            shutil.rmtree(db_path)
-
-        with st.spinner('Loading and embedding documents...'):
-            st.session_state.embeddings = huggingface_instruct_embedding()
-            st.session_state.loader = CSVLoader('../data/IMDB Dataset.csv')
-            st.session_state.docs = st.session_state.loader.load()
-            # Clean HTML tags from review text
-            for doc in st.session_state.docs:
-                doc.page_content = doc.page_content.replace('<br /><br />', '\n').replace('<br />', '\n')
-            st.session_state.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            st.session_state.final_documents = st.session_state.text_splitter.split_documents(st.session_state.docs[:1000])
-            st.session_state.vectors = ObjectBox.from_documents(st.session_state.final_documents, st.session_state.embeddings, embedding_dimensions=768, db_directory=db_path)
-
-        st.write(f'Loaded {len(st.session_state.docs)} docs, split into {len(st.session_state.final_documents)} chunks')
+        if not os.path.exists(DB_PATH):
+            st.error(
+                'Vector store not found. Run `python build_vectorstore.py` first to build it.'
+            )
+            st.stop()
+        with st.spinner('Loading vector store...'):
+            embeddings = huggingface_instruct_embedding()
+            st.session_state.vectors = FAISS.load_local(
+                DB_PATH, embeddings, allow_dangerous_deserialization=True
+            )
+        st.success('Vector store loaded.')
 
 
-if st.button('Embedd Documents'):
-    vector_embedding()
-    st.write('ObjectBox Database is ready. You can now enter your question')
+def log_query(user_question, context_docs, full_prompt, answer, response_time):
+    """Append a query log entry to the log file."""
+    os.makedirs(LOG_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    chunks_text = ''
+    for i, doc in enumerate(context_docs, 1):
+        chunks_text += f'\n--- Chunk {i} ---\n{doc.page_content}\n'
+
+    entry = (
+        f'{"=" * 80}\n'
+        f'TIMESTAMP: {timestamp}\n'
+        f'RESPONSE TIME: {response_time:.2f}s\n'
+        f'{"=" * 80}\n\n'
+        f'USER QUESTION:\n{user_question}\n\n'
+        f'RETRIEVED CHUNKS ({len(context_docs)}):{chunks_text}\n'
+        f'FULL PROMPT SENT TO LLM:\n{full_prompt}\n\n'
+        f'LLM ANSWER:\n{answer}\n\n'
+    )
+
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(entry)
+
+
+# Load vector store on startup
+load_vector_store()
 
 user_input = st.text_input('Enter your question from documents')
 
-
 if user_input:
-    if 'vectors' not in st.session_state:
-        st.error('Please embed documents first by clicking the "Embedd Documents" button.')
-        st.stop()
     document_chain = create_stuff_documents_chain(local_llm(), prompt)
     retriever = st.session_state.vectors.as_retriever()
     retrieval_chain = create_retrieval_chain(retriever, document_chain)
     start = time.process_time()
 
     response = retrieval_chain.invoke({'input': user_input})
+    response_time = time.process_time() - start
+
     st.write(response['answer'])
-    st.write(f'response time: {(time.process_time() - start):.2f} secs')
+    st.write(f'Response time: {response_time:.2f} secs')
 
+    # Build the full prompt text for logging
+    context_text = '\n\n'.join(doc.page_content for doc in response['context'])
+    full_prompt = prompt.format(context=context_text, input=user_input)
 
-     # With a streamlit expander
+    log_query(user_input, response['context'], full_prompt, response['answer'], response_time)
+
     with st.expander("Document Similarity Search"):
-        # Find the relevant chunks
         for i, doc in enumerate(response["context"]):
             st.write(doc.page_content)
             st.write("--------------------------------")

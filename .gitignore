@@ -17,12 +17,16 @@ app/venv/
 # VScode settings
 .vscode/
 
-# ObjectBox database
+# Vector store databases
 objectbox/
+vectorstore_faiss/
 
 # PDF data
 us-census-data/
 
 # Images
 images/
+
+# Logs
+logs/
 
